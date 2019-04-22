@@ -131,8 +131,7 @@ def main():
     onnx_file_path = 'yolov3.onnx'
     engine_file_path = "yolov3.trt"
     # Download a dog image and save it to the following file path:
-    input_image_path = download_file('dog.jpg',
-        'https://github.com/pjreddie/darknet/raw/f86901f6177dfc6116360a13cc06ab680e0c86b0/data/dog.jpg', checksum_reference=None)
+    input_image_path = "/root/aushop_fullbody_tvx1_20190227/Converted_Root/JPEGImages/000000.jpg"
 
     # Two-dimensional tuple with the target network's (spatial) input resolution in HW ordered
     input_resolution_yolov3_HW = (608, 608)
