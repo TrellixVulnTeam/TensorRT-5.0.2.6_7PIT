@@ -153,7 +153,6 @@ def main():
         shape_orig_WHs.append(image_raw.size)
 
     # Output shapes expected by the post-processor
-    # VOCの画像サイズは416*416ため、outputのshapeも相応に編集する
     output_shapes = [(batch_size, 1, 18, 13, 13), (batch_size, 1, 18, 26, 26), (batch_size, 1, 18, 52, 52)]
     # Do inference with TensorRT
     trt_outputs = []
