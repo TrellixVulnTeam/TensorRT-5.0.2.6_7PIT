@@ -60,6 +60,7 @@ from yolov3_to_onnx import download_file
 from data_processing import PreprocessYOLO, PostprocessYOLO, ALL_CATEGORIES
 
 import sys, os
+import glob
 sys.path.insert(1, os.path.join(sys.path[0], ".."))
 import common
 
@@ -99,7 +100,7 @@ def get_engine(onnx_file_path, engine_file_path=""):
         """Takes an ONNX file and creates a TensorRT engine to run inference with"""
         with trt.Builder(TRT_LOGGER) as builder, builder.create_network() as network, trt.OnnxParser(network, TRT_LOGGER) as parser:
             builder.max_workspace_size = 1 << 30 # 1GB
-            builder.max_batch_size = 1
+            builder.max_batch_size = batch_size
             # Parse model file
             if not os.path.exists(onnx_file_path):
                 print('ONNX file {} not found, please run yolov3_to_onnx.py first to generate it.'.format(onnx_file_path))
@@ -131,19 +132,29 @@ def main():
     onnx_file_path = 'yolov3.onnx'
     engine_file_path = "yolov3.trt"
     # Download a dog image and save it to the following file path:
-    input_image_path = "/root/aushop_fullbody_tvx1_20190227/Converted_Root/JPEGImages/000001.jpg"
+    input_image_path = "/root/aushop_fullbody_tvx1_20190227/Converted_Root/JPEGImages"
+    pictures = glob.glob(input_image_path + "/*jpg")
+    image_raws, images, shape_orig_WHs = [], None, []
 
     # Two-dimensional tuple with the target network's (spatial) input resolution in HW ordered
-    input_resolution_yolov3_HW = (608, 608)
+    input_resolution_yolov3_HW = (416, 416)
     # Create a pre-processor object by specifying the required input resolution for YOLOv3
     preprocessor = PreprocessYOLO(input_resolution_yolov3_HW)
     # Load an image from the specified input path, and return it together with  a pre-processed version
     image_raw, image = preprocessor.process(input_image_path)
-    # Store the shape of the original input image in WH format, we will need it for later
-    shape_orig_WH = image_raw.size
+    for picture in pictures[:batch_size]:
+        image_raw, image = preprocessor.process(picture)
+        # Store the shape of the original input image in WH format, we will need it for later
+        image_raws.append(image_raw)
+        if images is None:
+            images = image
+        else:
+            images = np.concatenate((images, image), axis=0)
+        shape_orig_WHs.append(image_raw.size)
 
     # Output shapes expected by the post-processor
-    output_shapes = [(1, 255, 19, 19), (1, 255, 38, 38), (1, 255, 76, 76)]
+    # VOCの画像サイズは416*416ため、outputのshapeも相応に編集する
+    output_shapes = [(batch_size, 1, 18, 13, 13), (batch_size, 1, 18, 26, 26), (batch_size, 1, 18, 52, 52)]
     # Do inference with TensorRT
     trt_outputs = []
     with get_engine(onnx_file_path, engine_file_path) as engine, engine.create_execution_context() as context:
@@ -151,8 +162,8 @@ def main():
         # Do inference
         print('Running inference on image {}...'.format(input_image_path))
         # Set host input to the image. The common.do_inference function will copy the input to the GPU before executing.
-        inputs[0].host = image
-        trt_outputs = common.do_inference(context, bindings=bindings, inputs=inputs, outputs=outputs, stream=stream)
+        inputs[0].host = images
+        trt_outputs = common.do_inference(context, bindings=bindings, inputs=inputs, outputs=outputs, stream=stream, batch_size=batch_size)
 
     # Before doing post-processing, we need to reshape the outputs as the common.do_inference will give us flat arrays.
     trt_outputs = [output.reshape(shape) for output, shape in zip(trt_outputs, output_shapes)]
@@ -166,13 +177,18 @@ def main():
 
     postprocessor = PostprocessYOLO(**postprocessor_args)
 
-    # Run the post-processing algorithms on the TensorRT outputs and get the bounding box details of detected objects
-    boxes, classes, scores = postprocessor.process(trt_outputs, (shape_orig_WH))
-    # Draw the bounding boxes onto the original input image and save it as a PNG file
-    obj_detected_img = draw_bboxes(image_raw, boxes, scores, classes, ALL_CATEGORIES)
-    output_image_path = 'dog_bboxes.png'
-    obj_detected_img.save(output_image_path, 'PNG')
-    print('Saved image with bounding boxes of detected objects to {}.'.format(output_image_path))
+    for index, image in zip(range(batch_size), image_raws):
+        # Run the post-processing algorithms on the TensorRT outputs and get the bounding box details of detected objects
+        boxes, classes, scores = postprocessor.process([trt_outputs[0][index], trt_outputs[1][index], trt_outputs[2][index]], (shape_orig_WHs[index]))
+        # Draw the bounding boxes onto the original input image and save it as a PNG file
+        if boxes is None:
+            image_raws[index].save(os.path.basename(pictures[index]), 'PNG')
+        else:
+            obj_detected_img = draw_bboxes(image_raws[index], boxes, scores, classes, ALL_CATEGORIES)
+        output_image_path = os.path.basename(pictures[index])
+        obj_detected_img.save(output_image_path, 'PNG')
+        print('Savedimagewithboundingboxesofdetectedobjectsto{}.'.format(output_image_path))
 
+batch_size = 1
 if __name__ == '__main__':
     main()
