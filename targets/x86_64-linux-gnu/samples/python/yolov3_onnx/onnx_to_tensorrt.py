@@ -141,7 +141,7 @@ def main():
     # Create a pre-processor object by specifying the required input resolution for YOLOv3
     preprocessor = PreprocessYOLO(input_resolution_yolov3_HW)
     # Load an image from the specified input path, and return it together with  a pre-processed version
-    image_raw, image = preprocessor.process(input_image_path)
+    image_raw, image = preprocessor.process(pictures)
     for picture in pictures[:batch_size]:
         image_raw, image = preprocessor.process(picture)
         # Store the shape of the original input image in WH format, we will need it for later
